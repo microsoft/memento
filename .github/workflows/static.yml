@@ -1,0 +1,67 @@
+name: Deploy Blogpost Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - blogpost/**
+      - .github/workflows/static.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build Pages artifact
+        run: |
+          set -eu
+
+          mkdir -p _site/blogpost
+          cp blogpost/index.html _site/blogpost/
+          cp -R blogpost/css _site/blogpost/
+          cp -R blogpost/figures _site/blogpost/
+          printf '' > _site/.nojekyll
+
+          cat > _site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta http-equiv="refresh" content="0; url=./blogpost/">
+            <title>Memento Blogpost Redirect</title>
+            <link rel="canonical" href="./blogpost/">
+          </head>
+          <body>
+            <p>Redirecting to <a href="./blogpost/">the Memento blogpost</a>.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

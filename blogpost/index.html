@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Memento teaches language models to manage their own context by segmenting reasoning into blocks, compressing each into a dense memento, and reasoning forward with sharply lower KV cache usage.">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Memento: Teaching LLMs to Manage Their Own Context">
+  <meta property="og:description" content="Memento teaches language models to manage their own context by segmenting reasoning into blocks, compressing each into a dense memento, and reasoning forward with sharply lower KV cache usage.">
+  <meta property="og:image" content="figures/main_results_sft.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Memento: Teaching LLMs to Manage Their Own Context">
+  <meta name="twitter:description" content="Memento teaches language models to manage their own context by segmenting reasoning into blocks, compressing each into a dense memento, and reasoning forward with sharply lower KV cache usage.">
+  <title>Memento: Teaching LLMs to Manage Their Own Context</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+
+  <!-- KaTeX for math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+
+  <link rel="stylesheet" href="css/distill.css">
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- HEADER                                                           -->
+<!-- ================================================================ -->
+<header class="article-header">
+  <h1>Memento: Teaching LLMs to Manage Their Own Context</h1>
+  <div class="authors">
+    <span class="author-name">Vasilis Kontonis</span>,
+    <span class="author-name">Yuchen Zeng</span>,
+    <span class="author-name">Shivam Garg</span>,
+    <span class="author-name">Lingjiao Chen</span>,
+    <span class="author-name">Hao Tang</span>,
+    <span class="author-name">Ziyan Wang</span>,
+    <span class="author-name">Ahmed Awadallah</span>,
+    <span class="author-name">Eric Horvitz</span>,
+    <span class="author-name">John Langford</span>,
+    <span class="author-name">Dimitris Papailiopoulos</span>
+    <div class="affiliation"><a href="https://www.microsoft.com/en-us/research/lab/ai-frontiers/" style="color: inherit; text-decoration: none;">Microsoft Research, AI Frontiers</a></div>
+  </div>
+</header>
+
+<!-- ================================================================ -->
+<!-- BODY                                                             -->
+<!-- ================================================================ -->
+<div class="page-wrapper">
+<div class="content">
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- TL;DR                                                             -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<div class="finding">
+<h2 style="margin-top:0;">tl;dr</h2>
+<ol>
+  <li>You can teach a model to segment its CoT into blocks, compact each into a dense memento, and reason forward from that. Standard SFT on ~30K examples suffices.</li>
+  <li>Context management can and should be a learned capability, not orchestrated around the model.</li>
+  <li>This reduces peak KV cache by 2&ndash;3&times; and yields 1.75&times; serving throughput, with small accuracy gaps that close with RL and/or scale.</li>
+  <li>Erased blocks don&rsquo;t fully disappear! Their information persists in the KV representations of mementos that were computed while the blocks were still visible. This is an implicit second stream of information without which performance significantly degrades.</li>
+  <li>We are releasing the <a href="https://huggingface.co/datasets/microsoft/OpenMementos">OpenMementos dataset</a> (228K annotated traces), and the <a href="https://github.com/microsoft/memento">data generation &amp; inference code</a>.</li>
+</ol>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- THE PROBLEM                                                       -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>The Problem: LLMs Don&rsquo;t Know How to Manage Their Context</h2>
+
+<p>
+It&rsquo;s well established at this point that reasoning models can solve hard problems by producing a lot of tokens. <a href="https://openai.com/index/learning-to-reason-with-llms/">Test-time compute</a> <a href="https://arxiv.org/abs/2501.12948">works</a> and has led to <a href="https://blog.google/innovation-and-ai/models-and-research/google-deepmind/gemini-model-thinking-updates-march-2025/">dramatic</a> <a href="https://www.anthropic.com/news/claude-4">advances</a> on competition-level math and coding, but it can also result in a single inference call producing hundreds of thousands of tokens. That is roughly the length of a book. All these tokens stay in memory, attended to at equal cost, whether they lead somewhere or not. The model has no built-in mechanism to compact what it has figured out, keep the conclusions, and move on.
+</p>
+
+<p>
+There are ways to manage this externally&mdash;run a separate <a href="https://arxiv.org/abs/2509.13313">summarizer</a>, restart API calls with <a href="https://arxiv.org/abs/2503.06692">condensed</a> <a href="https://arxiv.org/abs/2602.03249">context</a>, build <a href="https://arxiv.org/abs/2512.24601">orchestration</a> logic around the model. However, these are all systems bolted around the model rather than skills the model itself has learned. We think figuring out what to remember and what to forget can and should be a skill that the model learns during training.
+</p>
+
+<p>
+<strong>Memento</strong> teaches language models exactly this. A Memento-trained model segments its reasoning into semantically coherent blocks. When a block is complete, the model produces a <em>memento</em>: a terse, information-dense compression of the block&rsquo;s conclusions, key intermediate values, formulas, and strategic decisions. Think of a memento as a lemma: a minimal record of what future reasoning steps need to continue.
+</p>
+
+<p>
+Once a memento is generated, the preceding thinking block is masked from attention and its KV cache entries are flushed away. From that point on, the model sees only past mementos plus whatever block it is currently working through. This means context grows while the model is reasoning through a block, but then it drops sharply once the memento is produced and the block is evicted. This gives rise to a sawtooth pattern where peak memory stays at a fraction of what a standard flat CoT trace would require.
+</p>
+
+<p>
+Importantly, all of this happens within a single generation call, with no restarts, separate summarizers, or orchestration layers involved. The model segments, compresses, and masks its own reasoning by itself. Here&rsquo;s what that looks like on a real problem&mdash;press <strong>Play</strong> to watch the model think:
+</p>
+
+<!-- Interactive animation: real Qwen3-32B generation with live KV chart -->
+<iframe src="figures/animation.html" title="Interactive Memento reasoning animation" style="width:100%; height:480px; border:1px solid #e0e0e0; border-radius:8px;" loading="lazy"></iframe>
+
+<p>
+We applied Memento to five models: Qwen2.5-7B, Qwen3-8B and 32B, Phi-4 Reasoning (14B), and OLMo3-7B-Think. It works across all of them. Peak KV cache drops by 2&ndash;3&times; with small accuracy gaps that shrink with scale and close further with RL. These gaps trace back to consistency rather than capability. That is, the mementified models can still solve the same problems, just slightly less reliably. We believe much of this is due to the mismatch between the training data distribution and the target model, rather than any fundamental limitation of compression itself.
+</p>
+
+<figure>
+  <img src="figures/main_results_sft.png" alt="Memento accuracy across model families" style="max-width: 85%;" />
+  <figcaption>
+    <strong>Accuracy across model families.</strong> Memento maintains strong performance with 2&ndash;3&times; KV cache reduction. Gaps shrink with scale and close further with RL.
+  </figcaption>
+</figure>
+
+<div class="finding">
+<strong>And something we didn&rsquo;t expect.</strong>
+The erased blocks, although physically removed from the KV cache, don&rsquo;t fully disappear from the model&rsquo;s representations. Their information persists in the KV representations of mementos that were computed while the blocks were still visible. More on this <a href="#dual-streams">below</a>!
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- BUILDING THE DATASET                                              -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>How Do You Teach Context Management? Add It in the Training Data!</h2>
+
+<p>
+Teaching this behavior requires training data that didn&rsquo;t quite exist: large-scale, high-quality reasoning traces segmented into blocks, each paired with a memento that captures the block&rsquo;s conclusions in a way the model can reason forward from. The intuition is straightforward: if you take reasoning traces, segment them, add proper summaries, and SFT on the result, maybe the model learns to do context management on its own. It sounds simple, but as with many things there were several components that broke along the way and had to be fixed.
+</p>
+
+<p>
+We decided to build on top of <a href="https://huggingface.co/datasets/open-thoughts/OpenThoughts3-1.2M">OpenThoughts</a>: reasoning traces generated by QwQ-32B that are already reasonably high-quality and widely used by the community, which saves us from generating everything from scratch. Now the question is: how to go from raw traces to segmented, annotated ones with mementos at each block boundary? The challenge is that reasoning traces have no natural segment boundaries&mdash;ideas mix together, calculations span multiple sentences, and where to &ldquo;cut&rdquo; the CoT depends much more on meaning than on formatting or any other obvious indicator.
+</p>
+
+<p>
+We tried the obvious thing first: paste a trace into a frontier model and ask it to segment and summarize directly. This does not work! Not even if you cut the trace into pieces first, because you don&rsquo;t know where to cut. Finding good partitions requires simultaneously reasoning about block coherence, size balance, and semantic boundaries, which is a tricky combinatorial optimization that LLMs struggle to do in one shot.
+</p>
+
+<p>
+So we factored the problem into parts. First, we segment each trace into atomic units&mdash;sentences, code blocks, math equations&mdash;that can&rsquo;t be meaningfully divided further. Then an LLM scores each inter-sentence boundary from 0 (mid-thought, would break flow) to 3 (major transition, natural stopping point). This is a local question and LLMs handle local questions very well. The global optimization of where to actually place boundaries given these scores is then handled algorithmically, maximizing boundary quality while penalizing uneven block sizes. This kind of constrained combinatorial optimization is hard for an LLM to do in one shot, but straightforward to solve algorithmically.
+</p>
+
+<p>
+Once we have segmented traces, we need to compress each block. A compressor LLM produces a memento for each one, and we explicitly frame the task not as summarization but as state compression: produce something compact enough that the model could continue reasoning from the memento alone, without ever seeing the original block. A separate judge LLM evaluates each memento across six dimensions (formulas extracted, values preserved, methods named, validation included, no hallucinations, result-first structure) and if the score falls short, the judge provides specific, actionable feedback&mdash;not &ldquo;more details needed&rdquo; but &ldquo;missing formula: $K^2 - 3K + 3$&rdquo;&mdash;and the compressor retries.
+</p>
+
+<p>
+This iterative refinement turned out to be crucial. Single-pass compression barely hits a 28% pass rate on our rubric, because initial mementos typically miss exact formulas or intermediate values that downstream blocks depend on. Two rounds of judge feedback bring the pass rate to 92%.
+</p>
+
+<p>
+(For all LLM calls in the pipeline we used GPT-5.x, but any sufficiently capable model should work. The full pipeline is open and we hope people use it, improve it, and build better datasets than ours.)
+</p>
+
+<p>
+The final dataset, <strong>OpenMementos</strong>, contains 228K annotated traces consisting of 54% math, 19% code, 27% science problems. We measured that mementos resulted in roughly 6&times; trace-level compression: about 10,900 tokens of reasoning compacted to under 2,000 tokens of mementos per trace.
+</p>
+
+<figure>
+  <img src="figures/training_data_kde.png" alt="OpenMementos dataset distributions by domain" />
+  <figcaption>
+    <strong>OpenMementos dataset distributions by domain</strong> (228K samples). (a) Math and code have ~9 blocks/sample; science has ~7. (b) Block sizes range from 2.3K (science) to 3.8K (math) chars. (c) Summary sizes cluster around 509&ndash;603 chars across all domains, indicating a stable compression target. (d) Math achieves the tightest compression ratio (median 0.16) due to its larger blocks.
+  </figcaption>
+</figure>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- TRAINING                                                          -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>Training: How to Put Pressure on the Model</h2>
+
+<p>
+We use a two-stage SFT procedure on OpenMementos that separates format learning from context management. The intuition follows standard curriculum learning: first let the model acquire the block-memento format under normal conditions, then introduce the harder constraint of operating without access to masked content.
+</p>
+
+<p>
+<strong>Stage 1 (Full Attention):</strong> Standard causal attention over all tokens. Loss is computed on all tokens, including thinking blocks, mementos, special tokens, and the final answer. The model learns the block-memento format without any context management pressure.
+</p>
+
+<p>
+<strong>Stage 2 (Memento Attention):</strong> After each completed memento, the preceding thinking block is masked from all subsequent attention. This teaches the model to produce self-contained mementos that carry all information needed for downstream reasoning.
+</p>
+
+<p>
+When starting with already strong reasoning models, we found that training for more epochs on fewer samples is more effective than training on more samples with fewer epochs. We train on 31K samples from the 228K OpenMementos pool with 32K sequence length; further gains are more effectively achieved through RL than through additional supervised data. For models that already reason well (Qwen3, OLMo3, Phi-4-reasoning), two stages suffice; non-reasoning base models like Qwen 2.5 7B need a preliminary round of standard reasoning SFT first.
+</p>
+
+<figure class="wrap-right">
+  <img src="figures/scaling_results.png" alt="Training data scaling" />
+  <figcaption>
+    <strong>Data scaling.</strong> Even ~30K samples suffice. More data helps, but the skill is learnable from modest amounts.
+  </figcaption>
+</figure>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- ACCURACY                                                          -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>How Does Compaction Affect Accuracy?</h2>
+
+<p>
+The natural concern with Memento is that attending to fewer tokens should hurt accuracy. And when we first looked at the numbers, there was a drop. Where does it come from?
+</p>
+
+<p>
+Our initial reaction was that it must be the sparsity: the model is seeing far less context, so of course it gets worse. But then we ran control studies, and the picture turned out to be more interesting.
+</p>
+
+<p>
+The key insight is that we train on OpenThoughts traces generated by QwQ-32B, which is a different and often weaker model than the ones we&rsquo;re fine-tuning. Several of our target models were released after QwQ and are arguably stronger. So we ran a control: take each base model, SFT it on the same raw OpenThoughts traces (no block structure, no mementos), and measure the accuracy drop from that alone. It turns out that just doing SFT on another model&rsquo;s reasoning traces already costs you something. When we compare Memento against that control rather than the untouched baseline, the additional drop from compression is small, and in some cases negligible.
+</p>
+
+<!-- Main results table (Qwen3-8B) -->
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th></th>
+      <th colspan="2">AIME&rsquo;26</th>
+      <th colspan="2">Comp. Math</th>
+      <th colspan="2">MATH-500</th>
+      <th colspan="2">GPQA-D</th>
+      <th colspan="2">LCB v6</th>
+    </tr>
+    <tr>
+      <th></th>
+      <th></th>
+      <th class="number">Val</th><th class="number">&Delta;</th>
+      <th class="number">Val</th><th class="number">&Delta;</th>
+      <th class="number">Val</th><th class="number">&Delta;</th>
+      <th class="number">Val</th><th class="number">&Delta;</th>
+      <th class="number">Val</th><th class="number">&Delta;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Base -->
+    <tr class="row-base">
+      <td rowspan="3">Base</td>
+      <td>Acc</td>
+      <td class="number">66.8</td><td></td>
+      <td class="number">54.3</td><td></td>
+      <td class="number">90.5</td><td></td>
+      <td class="number">61.4</td><td></td>
+      <td class="number">73.1</td><td></td>
+    </tr>
+    <tr class="row-base">
+      <td>Peak KV</td>
+      <td class="number">2.41</td><td></td>
+      <td class="number">2.71</td><td></td>
+      <td class="number">0.84</td><td></td>
+      <td class="number">1.23</td><td></td>
+      <td class="number">1.76</td><td></td>
+    </tr>
+    <tr class="row-base">
+      <td>AUC KV</td>
+      <td class="number">25.3</td><td></td>
+      <td class="number">30.9</td><td></td>
+      <td class="number">4.3</td><td></td>
+      <td class="number">6.6</td><td></td>
+      <td class="number">15.6</td><td></td>
+    </tr>
+    <!-- Control -->
+    <tr class="row-control">
+      <td rowspan="3">Control</td>
+      <td>Acc</td>
+      <td class="number">64.7</td><td></td>
+      <td class="number">49.2</td><td></td>
+      <td class="number">89.7</td><td></td>
+      <td class="number">57.8</td><td></td>
+      <td class="number">70.0</td><td></td>
+    </tr>
+    <tr class="row-control">
+      <td>Peak KV</td>
+      <td class="number">2.59</td><td></td>
+      <td class="number">2.82</td><td></td>
+      <td class="number">0.88</td><td></td>
+      <td class="number">1.60</td><td></td>
+      <td class="number">1.89</td><td></td>
+    </tr>
+    <tr class="row-control">
+      <td>AUC KV</td>
+      <td class="number">28.3</td><td></td>
+      <td class="number">33.1</td><td></td>
+      <td class="number">4.7</td><td></td>
+      <td class="number">11.8</td><td></td>
+      <td class="number">19.2</td><td></td>
+    </tr>
+    <!-- Memento -->
+    <tr class="row-memento">
+      <td rowspan="3">Memento</td>
+      <td>Acc</td>
+      <td class="number">57.3</td><td class="number">&minus;7.4</td>
+      <td class="number">45.1</td><td class="number">&minus;4.1</td>
+      <td class="number">90.1</td><td class="number">+0.4</td>
+      <td class="number">55.8</td><td class="number">&minus;2.0</td>
+      <td class="number">66.5</td><td class="number">&minus;3.5</td>
+    </tr>
+    <tr class="row-memento">
+      <td>Peak KV</td>
+      <td class="number">1.02</td><td class="number">0.39&times;</td>
+      <td class="number">1.08</td><td class="number">0.38&times;</td>
+      <td class="number">0.41</td><td class="number">0.47&times;</td>
+      <td class="number">0.56</td><td class="number">0.35&times;</td>
+      <td class="number">0.60</td><td class="number">0.32&times;</td>
+    </tr>
+    <tr class="row-memento">
+      <td>AUC KV</td>
+      <td class="number">9.7</td><td class="number">0.34&times;</td>
+      <td class="number">10.7</td><td class="number">0.32&times;</td>
+      <td class="number">1.9</td><td class="number">0.40&times;</td>
+      <td class="number">4.0</td><td class="number">0.34&times;</td>
+      <td class="number">5.6</td><td class="number">0.29&times;</td>
+    </tr>
+    <!-- Mem. + RL -->
+    <tr class="row-rl">
+      <td rowspan="3">Mem.&thinsp;+&thinsp;RL</td>
+      <td>Acc</td>
+      <td class="number">64.9</td><td class="number">+0.2</td>
+      <td class="number">49.4</td><td class="number">+0.2</td>
+      <td class="number">91.0</td><td class="number">+1.3</td>
+      <td class="number">62.9</td><td class="number">+5.1</td>
+      <td class="number">68.8</td><td class="number">&minus;1.2</td>
+    </tr>
+    <tr class="row-rl">
+      <td>Peak KV</td>
+      <td class="number">1.45</td><td class="number">0.56&times;</td>
+      <td class="number">1.48</td><td class="number">0.52&times;</td>
+      <td class="number">0.68</td><td class="number">0.77&times;</td>
+      <td class="number">1.24</td><td class="number">0.77&times;</td>
+      <td class="number">1.12</td><td class="number">0.59&times;</td>
+    </tr>
+    <tr class="row-rl">
+      <td>AUC KV</td>
+      <td class="number">14.9</td><td class="number">0.53&times;</td>
+      <td class="number">16.4</td><td class="number">0.50&times;</td>
+      <td class="number">3.2</td><td class="number">0.68&times;</td>
+      <td class="number">9.2</td><td class="number">0.78&times;</td>
+      <td class="number">10.3</td><td class="number">0.54&times;</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+But we were still curious about whatever accuracy gap remained. So we asked: can the model still solve the same problems? We generated 64 completions per problem across all three model families on AIME 2024/25/26, and the answer is overwhelmingly yes. The overlap between the problems solved by the base model and by Memento averages 96.4%, hitting 100% in some settings. The model retains the capability to solve these problems&mdash;what drops is the consistency of solving them on any single attempt.
+</p>
+
+<p>
+This is an important distinction because it means the gap is closable. Even majority voting at $k{=}3$ is enough for the Memento model to match not just the control but the original baseline. This confirms that the capability is still there in the distribution.
+</p>
+
+<figure>
+  <img src="figures/pass_maj_at_k_64rep.png" alt="Majority voting and coverage analysis" />
+  <figcaption>
+    <strong>Majority-vote headroom.</strong> Memento SFT models match Base accuracy with just $k{=}2$&ndash;$3$ samples, confirming the accuracy gap is a consistency problem, not a capability problem.
+  </figcaption>
+</figure>
+
+<p>
+The natural next step was RL, and unsurprisingly it works: fine-tuning the Qwen3-8B Memento checkpoint with <a href="https://arxiv.org/abs/2506.13585">CISPO</a> recovers AIME&rsquo;26 and GPQA-Diamond scores (sometimes actually exceeding the vanilla baseline), while the KV savings remain substantial after RL.
+</p>
+
+<p>
+Scale also helps independently, even without RL. Going from Qwen3-8B to 32B, the gap shrinks considerably even though both models are trained on the same QwQ-32B traces&mdash;the larger model handles the distribution mismatch and the compression constraint more gracefully.
+</p>
+
+<div class="finding">
+<strong>The bottom line.</strong>
+Compression preserves capability. Any consistency loss traces primarily to training data mismatch rather than a fundamental limitation, and both RL and scale close the gap further.
+</div>
+
+<p>
+How much compression does Memento actually achieve at inference time? The figure below shows CDFs of per-problem compression ratios (memento tokens / block tokens) across four benchmark categories. Most problems land below 0.2, meaning the model compresses each block to under 20% of its original size. The compression is tightest on competition math (where blocks are longer and more compressible) and loosest on GPQA-Diamond (shorter, denser scientific reasoning).
+</p>
+
+<figure>
+  <img src="figures/compression_cdf.png" alt="CDF of compression ratios across benchmarks" />
+  <figcaption>
+    <strong>Inference-time compression.</strong> CDFs of per-problem compression ratios (memento tokens / block tokens) across four benchmark categories and four models. Most problems achieve compression ratios below 0.2 (5&times;+).
+  </figcaption>
+</figure>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- DUAL INFORMATION STREAM                                           -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2 id="dual-streams">The Dual Information Stream</h2>
+
+<p>
+Early in the project, there were a lot of discussions about how inference should actually work. The simplest approach, and the one that would make our lives much easier, is restarts: every time a memento is produced, kill the KV cache and start a fresh API call with just the accumulated memento text. No need to implement non-causal sparse attention inside vLLM, which turned out to be a huge pain. Just restart the call.
+</p>
+
+<p>
+But we kept coming back to a concern: under memento attention, block content is masked for <em>future</em> tokens, but the memento&rsquo;s KV values were computed <em>during generation</em> while the model could still attend to the full block. Do these KV states carry useful information beyond the memento text itself?
+</p>
+
+<p>
+We denote thinking block <em>i</em> as $T_i$ and its corresponding memento as $M_i$. We compare two inference modes on the same Qwen3-8B checkpoint:
+</p>
+
+<ol>
+  <li><strong>Memento attention (normal):</strong> While generating $M_i$, the model attends to all tokens in $T_i$ as well as the prompt and all preceding mementos. Once $M_i$ is complete, $T_i$ is masked from all subsequent attention&mdash;but $M_i$&rsquo;s KV cache entries, which were computed with block context, are retained. Future tokens therefore attend to memento KV states that implicitly encode block content.</li>
+  <li><strong>Memento attention + restart:</strong> Generation of each memento proceeds in two steps:
+    <ul>
+      <li><em>Step 1 (generation):</em> $M_i$&rsquo;s text is generated identically to normal memento attention&mdash;the model attends to $T_i$ and produces the same summary tokens.</li>
+      <li><em>Step 2 (KV recomputation):</em> After $M_i$ is complete, we discard the KV cache and run a fresh prefill pass over the effective context: prompt + $M_1$ + $M_2$ + &hellip; + $M_i$ (with standard causal masking). Critically, all past blocks are now masked and each memento&rsquo;s KV entries are recomputed attending only to the prompt and preceding mementos, not to the block it originally summarized.</li>
+    </ul>
+  </li>
+</ol>
+
+<figure>
+<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" style="max-width:600px; margin:0 auto; display:block; font-family:'Source Sans 3','Helvetica Neue',sans-serif;">
+  <!-- Step 1 label -->
+  <text x="10" y="42" font-size="13" font-weight="bold" fill="#073642">Step 1</text>
+  <!-- Prompt -->
+  <rect x="70" y="22" width="65" height="32" rx="4" fill="#268bd215" stroke="#268bd2" stroke-width="1.2"/>
+  <text x="102" y="43" font-size="12" font-weight="bold" fill="#073642" text-anchor="middle">Prompt</text>
+  <!-- T1 (dashed/masked) -->
+  <rect x="145" y="22" width="50" height="32" rx="4" fill="white" stroke="#93a1a1" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.5"/>
+  <text x="170" y="44" font-size="13" font-weight="bold" fill="#93a1a1" text-anchor="middle" opacity="0.5">T</text>
+  <text x="180" y="48" font-size="9" fill="#93a1a1" opacity="0.5">1</text>
+  <!-- M1 -->
+  <rect x="205" y="22" width="45" height="32" rx="4" fill="#d33682" stroke="#d33682" stroke-width="1.2"/>
+  <text x="224" y="44" font-size="13" font-weight="bold" fill="white" text-anchor="middle">M</text>
+  <text x="234" y="48" font-size="9" fill="white">1</text>
+  <!-- dots -->
+  <text x="268" y="43" font-size="14" fill="#657b83">…</text>
+  <!-- Ti (solid, visible) -->
+  <rect x="295" y="22" width="50" height="32" rx="4" fill="white" stroke="#268bd2" stroke-width="1.2"/>
+  <text x="316" y="44" font-size="13" font-weight="bold" fill="#268bd2" text-anchor="middle">T</text>
+  <text x="326" y="48" font-size="9" fill="#268bd2">i</text>
+  <!-- Mi -->
+  <rect x="355" y="22" width="45" height="32" rx="4" fill="#d33682" stroke="#d33682" stroke-width="1.2"/>
+  <text x="374" y="44" font-size="13" font-weight="bold" fill="white" text-anchor="middle">M</text>
+  <text x="384" y="48" font-size="9" fill="white">i</text>
+  <!-- annotation -->
+  <text x="415" y="43" font-size="11" font-style="italic" fill="#657b83">KV includes block info</text>
+
+  <!-- Arrow down -->
+  <line x1="340" y1="62" x2="340" y2="110" stroke="#93a1a1" stroke-width="1.5"/>
+  <polygon points="335,108 340,118 345,108" fill="#93a1a1"/>
+  <text x="352" y="92" font-size="10" fill="#657b83">discard KV, re-prefill</text>
+
+  <!-- Step 2 label -->
+  <text x="10" y="148" font-size="13" font-weight="bold" fill="#073642">Step 2</text>
+  <!-- Prompt -->
+  <rect x="70" y="128" width="65" height="32" rx="4" fill="#268bd215" stroke="#268bd2" stroke-width="1.2"/>
+  <text x="102" y="149" font-size="12" font-weight="bold" fill="#073642" text-anchor="middle">Prompt</text>
+  <!-- T1 (dashed/masked) -->
+  <rect x="145" y="128" width="50" height="32" rx="4" fill="white" stroke="#93a1a1" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.5"/>
+  <text x="170" y="150" font-size="13" font-weight="bold" fill="#93a1a1" text-anchor="middle" opacity="0.5">T</text>
+  <text x="180" y="154" font-size="9" fill="#93a1a1" opacity="0.5">1</text>
+  <!-- M1 -->
+  <rect x="205" y="128" width="45" height="32" rx="4" fill="#d33682" stroke="#d33682" stroke-width="1.2"/>
+  <text x="224" y="150" font-size="13" font-weight="bold" fill="white" text-anchor="middle">M</text>
+  <text x="234" y="154" font-size="9" fill="white">1</text>
+  <!-- dots -->
+  <text x="268" y="149" font-size="14" fill="#657b83">…</text>
+  <!-- Ti (dashed/masked) -->
+  <rect x="295" y="128" width="50" height="32" rx="4" fill="white" stroke="#93a1a1" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.5"/>
+  <text x="316" y="150" font-size="13" font-weight="bold" fill="#93a1a1" text-anchor="middle" opacity="0.5">T</text>
+  <text x="326" y="154" font-size="9" fill="#93a1a1" opacity="0.5">i</text>
+  <!-- Mi -->
+  <rect x="355" y="128" width="45" height="32" rx="4" fill="#d33682" stroke="#d33682" stroke-width="1.2"/>
+  <text x="374" y="150" font-size="13" font-weight="bold" fill="white" text-anchor="middle">M</text>
+  <text x="384" y="154" font-size="9" fill="white">i</text>
+  <!-- annotation -->
+  <text x="415" y="149" font-size="11" font-style="italic" fill="#b5396b">KV lacks block info</text>
+</svg>
+<figcaption>
+  <strong>Restart ablation.</strong> <em>Step 1:</em> $M_i$ is generated with full attention to $T_i$ (same as normal memento attention). <em>Step 2:</em> KV cache is discarded and recomputed via prefill over prompt + $M_{1..i}$ only&mdash;$T_i$ is masked, so $M_i$&rsquo;s KV states no longer encode block information. The 15 pp accuracy drop shows the KV channel carries significant reasoning capacity.
+</figcaption>
+</figure>
+
+<p>
+The generated memento text is identical in both conditions; only the KV representations differ. This isolates the question: does the information encoded in the KV states (from having attended to the block during generation) matter beyond what the memento text conveys?
+</p>
+
+<div class="finding magenta">
+<strong>KV states carry reasoning capacity.</strong>
+The restart mode drops AIME&rsquo;24 from 66.1% to 50.8%&mdash;a 15.3 pp gap. Mementos are not standalone text replacements; their cached KV representations form a high-bandwidth implicit channel that restart-based methods discard.
+</div>
+
+<p>
+This distinguishes Memento from prior iterative summarization methods like <a href="https://arxiv.org/abs/2503.06692">InftyThink</a> and <a href="https://arxiv.org/abs/2602.03249">Accordion-Thinking</a>, which discard original tokens entirely after summarization. Unlike those methods, Memento retains the KV cache, and this retention is critical.
+</p>
+
+<h3>Probing the Implicit KV Channel</h3>
+
+<p>
+But <em>what</em> information do the KV states carry? We designed a probing experiment: inject a random 5-digit passcode (00000&ndash;99999) into the content of a target block $T_2$ in a real AIME&rsquo;25 reasoning trace, then run a forward pass with block masking. We extract KV states from memento token positions and train a probe to predict the 5 individual digits. Three conditions:
+</p>
+
+<ul>
+  <li><strong>Direct:</strong> Probe $M_2$&rsquo;s KV states, which <em>can</em> attend to $T_2$. Upper bound on information in a single memento&rsquo;s KV.</li>
+  <li><strong>Masked:</strong> Probe $M_3$&rsquo;s KV states, which <em>cannot</em> attend to $T_2$ (already evicted). Any signal here must have propagated through the memento chain.</li>
+  <li><strong>Causal control:</strong> Probe $M_1$&rsquo;s KV states, which <em>precede</em> $T_2$. Sanity check&mdash;expect 10% chance.</li>
+</ul>
+
+<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; margin:24px 0;">
+  <figure style="flex:1; min-width:250px; margin:0;">
+    <img src="figures/kv_probing_figure12.png" alt="KV cache probing results" style="width:100%;" />
+    <figcaption>
+      <strong>Probing the implicit KV channel.</strong> Both Qwen3-8B and Qwen3-32B recover the passcode well above 10% chance from <em>masked</em> positions (26.7% and 23.0%), while causal controls show exactly chance-level accuracy.
+    </figcaption>
+  </figure>
+  <div style="flex:1; min-width:250px;">
+    <!-- Per-layer probing table -->
+    <table style="margin:0;">
+      <thead>
+        <tr>
+          <th></th>
+          <th class="number" colspan="2">Qwen3-8B</th>
+          <th class="number" colspan="2">Qwen3-32B</th>
+        </tr>
+        <tr>
+          <th></th>
+          <th class="number">Direct</th><th class="number">Masked</th>
+          <th class="number">Direct</th><th class="number">Masked</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>4th layer (early)</td><td class="number">51.6</td><td class="number">10.8</td><td class="number">53.8</td><td class="number">12.8</td></tr>
+        <tr><td>Last layer</td><td class="number">64.9</td><td class="number">26.5</td><td class="number">68.7</td><td class="number">22.4</td></tr>
+        <tr><td>Both layers</td><td class="number">65.2</td><td class="number">26.7</td><td class="number">71.2</td><td class="number">23.0</td></tr>
+        <tr><td>Chance</td><td class="number" colspan="4" style="text-align:center">10.0</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.8em; color:#657B83; margin-top:8px;">
+      <strong>Deeper layers carry the signal.</strong> Per-layer probe accuracy (%) under direct and masked conditions. The leaked signal concentrates in deeper layers; early layers show near-chance masked accuracy.
+    </p>
+  </div>
+</div>
+
+<p>
+At the direct position, the memento text itself bears no relation to the passcode, yet the KV states recover the injected digits with 60&ndash;70% accuracy. At the masked position, both models still recover the passcode well above chance (26.7% for Qwen3-8B, 23.0% for Qwen3-32B vs. 10% chance). The causal control shows exactly chance-level accuracy, confirming the signal is real and directional. The leaked signal concentrates in deeper layers: in Qwen3-8B, the 4th layer shows near-chance masked accuracy (10.8%) while the last layer reaches 26.5%. We further validated with a controlled toy transformer (4 layers, 810K parameters): leakage remains constant across training checkpoints even as task accuracy improves from 77% to 95%, confirming the channel is architectural&mdash;not learned.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- INFRASTRUCTURE                                                    -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>Making Memento Work in vLLM</h2>
+
+<figure class="wrap-right">
+  <img src="figures/throughput.png" alt="Throughput: Memento vs Vanilla" />
+  <figcaption>
+    <strong>1.75&times; throughput.</strong> Memento sustains higher batch sizes by freeing KV cache as blocks complete.
+  </figcaption>
+</figure>
+
+<p>
+Memento&rsquo;s block masking is data-dependent and keeps changing during generation, since which tokens to mask depends on what the model produces. No production inference framework supported this out of the box, unfortunately. We started with a HuggingFace backend, which was enough to validate that block masking and keeping everything in a single inference call actually helps, but once we were convinced, it was clear we needed to build this properly inside <a href="https://github.com/vllm-project/vllm">vLLM</a>.
+</p>
+
+<p>
+That turned out to be painful but in the end doable. The key design choice was <strong>physical KV cache compaction rather than logical masking</strong>: when a block completes, its KV entries are physically flushed and the freed slots are returned to the KV pool. This means standard FlashAttention and paged-attention kernels work completely unmodified as they never see the evicted tokens. The implementation operates purely at the vLLM Python level and can be installed as a patch on top of an existing vLLM installation.
+</p>
+
+<p>
+On a single B200 GPU with 240 concurrent requests (Qwen3-8B, 32K max tokens), Memento sustains 4,290 tok/s versus 2,447 for vanilla (1.75&times; throughput) and completes the batch in 693s versus 1,096s. The gains come from freeing KV entries as blocks complete, allowing the engine to sustain higher batch sizes in regimes where vanilla vLLM becomes KV-cache-bound.
+</p>
+
+<p>
+This infrastructure also turned out to be essential for RL: generating 32K-token training rollouts requires block masking during generation, with each rollout producing and compacting blocks on the fly. Without the vLLM fork, RL at this scale would not have been feasible.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- WHAT'S NEXT                                                       -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>What&rsquo;s Next?</h2>
+
+<p>
+Two things seem natural from here. First, <strong>scaling the RL recipe</strong>: our results with Qwen3-8B are early, and the pass@64 analysis makes it clear there is a lot of headroom for improvement. Larger models with more RL compute should take us to interesting places.
+</p>
+
+<p>
+Second, and more importantly to us: <strong>agents</strong>. Memento was built for mathematical, coding, and science reasoning as a test case, not because we think math and coding are the most interesting applications. The block-and-compress pattern maps onto any setting where a model accumulates a long trajectory of intermediate state and limited context windows become the bottleneck. Terminal and CLI agents are naturally multi-turn, where each action-observation cycle is laid out as a natural block, and the ability to selectively remember and forget is exactly what seems missing (at least from OSS models/agents). Recent work on context compaction in agentic settings (e.g., from <a href="https://platform.claude.com/docs/en/build-with-claude/compaction">Anthropic</a> and <a href="https://developers.openai.com/api/docs/guides/compaction">OpenAI</a>) points in the same direction, and we think there is a ton of room to explore here.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+<!-- CODA                                                              -->
+<!-- ────────────────────────────────────────────────────────────────── -->
+<h2>Coda</h2>
+
+<p>
+Memento started as an attempt to teach models to compact their own reasoning. That indeed works: 2&ndash;3&times; KV reduction, accuracy largely preserved while throughput nearly doubled. But we came away from this project with two things that feel more important than the efficiency gains.
+</p>
+
+<p>
+The first is that <strong>context management can be taught through standard training on the right data</strong>. A model that had no concept of blocks or summaries can, after SFT on ~30K examples, learn to segment its own reasoning, compress each segment, and continue from the compressed version. This is a non-trivial, non-causal skill involving sparse attention, selective forgetting, and state compression, yet it was acquired through entirely conventional training. We think there is, in fact, a much wider space of unconventional capabilities that can be taught this way.
+</p>
+
+<p>
+The second is the <strong>dual information stream</strong>. When you mask a block inside a single forward pass, the block&rsquo;s information doesn&rsquo;t quite vanish: it persists in the KV representations of the mementos that were computed while the block was still visible. This is both useful and architecturally unavoidable, and we don&rsquo;t yet know how far this implicit channel can be pushed, especially with RL.
+</p>
+
+<p>
+These two pieces point in the same direction: memory management should be a learned capability, and models can learn with less effort than we expected.
+</p>
+
+<p>
+We think Memento is a first step, and there&rsquo;s a long way to go, with better training data, stronger RL, and agent applications. We are continuing work across all of these, and along the way we are releasing <strong>OpenMementos</strong> (228K annotated reasoning traces), our full data generation pipeline, and the vLLM fork with native block masking.
+</p>
+
+<p>
+In the meantime, stop flushing your KV cache. Your model remembers more than you think.
+</p>
+
+</div><!-- /content -->
+</div><!-- /page-wrapper -->
+
+<!-- ================================================================ -->
+<!-- FOOTER                                                           -->
+<!-- ================================================================ -->
+<footer class="article-footer">
+  <p>
+    Memento &mdash; Microsoft Research, 2026.
+    <a href="https://raw.githubusercontent.com/microsoft/memento/main/docs/memento.pdf">Paper</a> &middot;
+    <a href="https://github.com/microsoft/memento">Code</a> &middot;
+    <a href="https://huggingface.co/datasets/microsoft/OpenMementos">Dataset</a>
+  </p>
+</footer>
+
+</body>
+</html>

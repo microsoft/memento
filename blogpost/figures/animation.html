@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<style>
+/* ===== Animation Figure Styles ===== */
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+.memento-demo {
+  font-family: 'Source Sans 3', 'Helvetica Neue', sans-serif;
+  margin: 0;
+  border: none;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.demo-header {
+  background: #f7f9fb;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.demo-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.demo-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.demo-controls button {
+  background: #268bd2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.demo-controls button:hover { background: #1a6fb5; }
+.demo-controls button:disabled { background: #ccc; cursor: not-allowed; }
+
+.demo-controls button.secondary {
+  background: #fff;
+  color: #268bd2;
+  border: 1px solid #268bd2;
+}
+.demo-controls button.secondary:hover { background: #d6eaf8; }
+
+button:focus-visible {
+  outline: 2px solid #268bd2;
+  outline-offset: 2px;
+}
+
+.demo-body {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- Left: generation view ---- */
+.gen-panel {
+  padding: 12px 16px;
+  overflow-y: auto;
+  border-right: 1px solid #e0e0e0;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #303030;
+}
+
+.problem-text {
+  background: #f7f9fb;
+  border-left: 3px solid #268bd2;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+  border-radius: 3px;
+}
+
+.problem-text strong {
+  font-family: 'Source Sans 3', sans-serif;
+  color: #1a1a2e;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gen-segment {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 4px;
+  position: relative;
+  transition: opacity 0.4s, max-height 0.5s ease;
+  overflow: hidden;
+}
+
+.gen-segment.block {
+  background: rgba(38, 139, 210, 0.06);
+  border-left: 3px solid #268bd2;
+  margin-bottom: 2px;
+}
+
+.gen-segment.summary {
+  background: rgba(211, 54, 130, 0.06);
+  border-left: 3px solid #d33682;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.gen-segment.answer {
+  background: rgba(108, 113, 196, 0.08);
+  border-left: 3px solid #6C71C4;
+  margin-bottom: 4px;
+}
+
+.gen-segment .seg-label {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.gen-segment.block .seg-label { color: #268bd2; }
+.gen-segment.summary .seg-label { color: #d33682; }
+.gen-segment.answer .seg-label { color: #6C71C4; }
+
+.gen-segment.masked {
+  opacity: 0.5;
+  cursor: pointer;
+  background: rgba(38, 139, 210, 0.03);
+  border-left-style: dashed;
+}
+
+.gen-segment.masked .seg-content {
+  display: none;
+}
+
+.gen-segment.masked .seg-label::after {
+  content: ' — masked from attention (click to expand)';
+  font-weight: 400;
+  font-style: italic;
+  color: #999;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.7rem;
+}
+
+.gen-segment.masked.expanded .seg-content {
+  display: block;
+  opacity: 0.4;
+}
+
+.gen-segment.masked.expanded .seg-label::after {
+  content: ' — masked from attention (click to collapse)';
+}
+
+.gen-segment.active {
+  box-shadow: 0 0 0 2px #268bd2;
+}
+
+.gen-segment.summary.active {
+  box-shadow: 0 0 0 2px #d33682;
+}
+
+/* Typewriter cursor */
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: #268bd2;
+  animation: blink 0.7s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ---- Right: KV cache chart ---- */
+.kv-panel {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.kv-panel h4 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.kv-chart-container {
+  position: relative;
+  height: 200px;
+  flex-shrink: 0;
+}
+
+.kv-chart-container canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.kv-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+
+.kv-stat {
+  background: #f7f9fb;
+  border-radius: 4px;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.kv-stat .stat-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 1px;
+}
+
+.kv-stat .stat-value {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  font-variant-numeric: tabular-nums;
+}
+
+.kv-stat .stat-value.memento { color: #d33682; }
+.kv-stat .stat-value.vanilla { color: #268bd2; }
+
+.kv-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: #666;
+  justify-content: center;
+}
+
+.kv-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 1px;
+}
+
+.kv-legend .leg-memento::before { background: #d33682; }
+.kv-legend .leg-vanilla::before { background: #268bd2; opacity: 0.5; }
+
+/* Progress bar */
+.progress-bar {
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar .fill {
+  height: 100%;
+  background: #268bd2;
+  transition: width 0.1s;
+  border-radius: 2px;
+}
+
+.kv-legend {
+  font-size: 0.65rem;
+}
+
+/* Math rendering */
+.gen-segment .katex { font-size: 0.9em; }
+.gen-segment .katex-display { margin: 0.4em 0; overflow-x: auto; overflow-y: hidden; }
+
+/* ---- Responsive ---- */
+@media (max-width: 500px) {
+  .demo-body {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+  }
+  .gen-panel {
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+    max-height: 350px;
+  }
+  .kv-panel {
+    max-height: 300px;
+  }
+}
+
+/* ---- Example tabs ---- */
+.example-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.example-tabs .tab {
+  background: #fff;
+  color: #268bd2;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.example-tabs .tab:hover {
+  background: #d6eaf8;
+}
+
+.example-tabs .tab.active {
+  background: #268bd2;
+  color: #fff;
+  border-color: #268bd2;
+}
+</style>
+</head>
+<body>
+
+<div class="memento-demo" id="mementoDemo">
+  <div class="demo-header">
+    <h3 id="demoTitle">Memento Generation &mdash; Qwen3-32B</h3>
+    <div class="example-tabs" role="tablist" aria-label="Example selector">
+      <button class="tab active" data-key="math" type="button" role="tab" aria-selected="true" onclick="switchExample('math')">Math</button>
+      <button class="tab" data-key="code" type="button" role="tab" aria-selected="false" onclick="switchExample('code')">Code</button>
+      <button class="tab" data-key="science" type="button" role="tab" aria-selected="false" onclick="switchExample('science')">Science</button>
+    </div>
+    <div class="demo-controls">
+      <button id="btnPlay" type="button" aria-label="Play or pause generation animation" onclick="togglePlay()">&#9654; Play</button>
+    </div>
+  </div>
+  <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+  <div class="demo-body">
+    <div class="gen-panel" id="genPanel">
+      <div class="problem-text" id="problemText">
+        <strong id="problemSource">Problem (AIME 2025 Problem 5)</strong><br>
+        <span id="problemBody">An isosceles trapezoid has an inscribed circle tangent to each of its four sides. The radius of the circle is 3, and the area of the trapezoid is 72. Let the parallel sides of the trapezoid have lengths r and s, with r ≠ s. Find r² + s².</span>
+      </div>
+    </div>
+    <div class="kv-panel">
+      <h4>KV Cache During Generation</h4>
+      <div class="kv-chart-container">
+        <canvas id="kvCanvas" role="img" aria-label="KV cache usage over generation time"></canvas>
+      </div>
+      <div class="kv-legend">
+        <span class="leg-memento">Memento</span>
+        <span class="leg-vanilla">Vanilla (no masking)</span>
+      </div>
+      <div class="kv-stats">
+        <div class="kv-stat">
+          <div class="stat-label">Current KV</div>
+          <div class="stat-value memento" id="statCurrentKV">0</div>
+        </div>
+        <div class="kv-stat">
+          <div class="stat-label">Peak KV</div>
+          <div class="stat-value memento" id="statPeakKV">0</div>
+        </div>
+        <div class="kv-stat">
+          <div class="stat-label">Vanilla KV</div>
+          <div class="stat-value vanilla" id="statVanillaKV">0</div>
+        </div>
+        <div class="kv-stat">
+          <div class="stat-label">Reduction</div>
+          <div class="stat-value" id="statReduction">&mdash;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// DATA — parsed from Qwen3-32B AIME 2025 Problem 5
+// Correct answer: 504
+const EXAMPLES = {
+  math: {
+    source: `AIME 2025 Problem 5`,
+    problem: `An isosceles trapezoid has an inscribed circle tangent to each of its four sides. The radius of the circle is 3, and the area of the trapezoid is 72. Let the parallel sides of the trapezoid have lengths r and s, with r ≠ s. Find r² + s².`,
+    answer: `504`,
+    segments: [
+      {type:"block", idx:1, text:`Okay, so I need to find \\( r^2 + s^2 \\) for an isosceles trapezoid that has an inscribed circle. The radius of the circle is 3, and the area of the trapezoid is 72. The trapezoid has parallel sides of lengths \\( r \\) and \\( s \\), which are not equal. First, I remember that not all trapezoids can have an inscribed circle (a circle tangent to all four sides). For a trapezoid to have an inscribed circle, it must be tangential, meaning it has an incircle. I think the condition for a trapezoid to be tangential is that the sum of the lengths of the two bases must equal the sum of the lengths of the two legs. Since it's an isosceles trapezoid, the legs are equal in length. Let me write down what I know:
+- The radius of the inscribed circle is 3. Therefore, the diameter is 6, which might relate to the height? Wait, yes, in a trapezoid with an incircle, the height is equal to twice the radius? Wait, actually, the radius is the distance from the center of the circle to the sides, so the height of the trapezoid should be twice the radius. Let me confirm that. The height (altitude) of the trapezoid is the distance between the two bases, which should be equal to twice the radius because the diameter would span the circle perpendicular to the bases. So, if the radius is 3, the height is \\( 2 \\times 3 = 6 \\). That seems right. The area of the trapezoid is given by the formula: $$
+$$
+\\text{Area} = \\frac{(r + s)}{2} \\times h $$
+$$
+Plugging in the known values: $$
+$$
+72 = \\frac{(r + s)}{2} \\times 6 $$
+$$
+Let me solve for \\( r + s \\):
+Multiply both sides by 2: $$
+$$
+144 = (r + s) \\times 6 $$
+$$
+Divide both sides by 6: $$
+$$
+r + s = 24 $$
+$$
+Okay, so the sum of the two bases is 24. Now, since the trapezoid is isosceles and tangential, the sum of the bases equals the sum of the legs. Let me denote each of the non-parallel sides (the legs) as \\( l \\).
+Since it's isosceles, both legs are equal, so the sum of the legs is \\( 2l \\).
+Therefore, the condition for a tangential trapezoid is: $$
+$$
+r + s = 2l $$
+$$
+So, from this, \\( 2l = 24 \\implies l = 12 \\). Each leg is 12 units long.`, tokens:523},
+      {type:"summary", idx:1, text:`Let r,s be unequal parallel sides; trapezoid is isosceles and tangential (incircle) so r+s = sum of legs. Radius=3 => height h=2*3=6. Area formula: 72=((r+s)/2)*6 => r+s=24. Legs both l satisfy r+s=2l=24 => l=12.`, tokens:53},
+      {type:"block", idx:2, text:`Now, how can I find \\( r \\) and \\( s \\) individually? The problem asks for \\( r^2 + s^2 \\). I know that if I can find \\( r \\) and \\( s \\), then I can compute this. Since I have \\( r + s = 24 \\), maybe I can find another equation involving \\( r \\) and \\( s \\). Let me think. In an isosceles trapezoid, the legs are equal, and the non-parallel sides are congruent. Also, the height is perpendicular to the bases. Let me try to draw the trapezoid and see if I can find a relationship using the height and the legs. If I consider the trapezoid with bases of lengths \\( r \\) and \\( s \\), the difference in their lengths is \\( |r - s| \\). When you have an isosceles trapezoid, the legs form the sides, and the projection of each leg onto the base is \\( \\frac{|r - s|}{2} \\). So, each leg forms the hypotenuse of a right triangle with height \\( h = 6 \\) and base \\( \\frac{|r - s|}{2} \\).
+Since the legs are 12, by the Pythagorean theorem:
+$$
+\\left( \\frac{|r - s|}{2} \\right)^2 + 6^2 = 12^2 \\\\
+\\left( \\frac{|r - s|}{2} \\right)^2 + 36 = 144 \\\\
+\\left( \\frac{|r - s|}{2} \\right)^2 = 144 - 36 = 108 \\\\
+$$
+Therefore, \\( \\frac{|r - s|}{2} = \\sqrt{108} = \\sqrt{36 \\times 3} = 6 \\sqrt{3} \\)
+Hence, \\( |r - s| = 12 \\sqrt{3} \\)
+So, the difference between the two bases is \\( 12 \\sqrt{3} \\).`, tokens:318},
+      {type:"summary", idx:2, text:`Use isosceles trapezoid geometry: each leg (length 12) is hypotenuse of right triangle with height 6 and horizontal leg (r-s)/2 (assume r>s). Equation: ((r-s)/2)^2+6^2=12^2 => ((r-s)/2)^2=108 => |r-s|=12*sqrt(3).`, tokens:53},
+      {type:"block", idx:3, text:`But we also know that \\( r + s = 24 \\). So, we have two equations:
+1. \\( r + s = 24 \\) 2. \\( |r - s| = 12\\sqrt{3} \\)
+Assuming, without loss of generality, that \\( r > s \\), so \\( r - s = 12\\sqrt{3} \\). Now, let me solve these two equations:
+Let me write them again:
+\\( r + s = 24 \\)
+\\( r - s = 12\\sqrt{3} \\) Adding both equations:
+\\( 2r = 24 + 12\\sqrt{3} \\) ⇒ \\( r = 12 + 6\\sqrt{3} \\) Subtracting the second equation from the first:
+\\( 2s = 24 - 12\\sqrt{3} \\) ⇒ \\( s = 12 - 6\\sqrt{3} \\)
+Therefore, the two bases are \\( 12 + 6\\sqrt{3} \\) and \\( 12 - 6\\sqrt{3} \\).
+Now, the problem asks for \\( r^2 + s^2 \\). Let me compute that. First, compute \\( r^2 + s^2 \\):
+\\( r^2 + s^2 = (12 + 6\\sqrt{3})^2 + (12 - 6\\sqrt{3})^2 \\)
+Let me compute each term separately. First term: \\( (12 + 6\\sqrt{3})^2 \\)
+= \\( 12^2 + 2*12*6\\sqrt{3} + (6\\sqrt{3})^2 \\)
+= \\( 144 + 144\\sqrt{3} + 36*3 \\)
+= \\( 144 + 144\\sqrt{3} + 108 \\)
+= \\( 252 + 144\\sqrt{3} \\)
+Second term: \\( (12 - 6\\sqrt{3})^2 \\)
+= \\( 12^2 - 2*12*6\\sqrt{3} + (6\\sqrt{3})^2 \\)
+= \\( 144 - 144\\sqrt{3} + 108 \\)
+= \\( 252 - 144\\sqrt{3} \\)
+Adding both terms together:
+\\( (252 + 144\\sqrt{3}) + (252 - 144\\sqrt{3}) = 252 + 252 = 504 \\)
+Therefore, \\( r^2 + s^2 = 504 \\).`, tokens:299},
+      {type:"summary", idx:3, text:`With r+s=24 and r-s=12*sqrt(3) (assume r>s): r=12+6*sqrt(3), s=12-6*sqrt(3). Compute r^2=252+144*sqrt(3), s^2=252-144*sqrt(3) => r^2+s^2=504.`, tokens:35},
+      {type:"block", idx:4, text:`Hmm, so the answer is 504? Let me just check my steps again to make sure I didn't make a mistake. First, area calculation: area = (r + s)/2 * h = 72. Since h = 6, then (r + s) must be 24. That seems okay.
+Then, since the trapezoid is tangential, the sum of the bases equals the sum of the legs. Since it's isosceles, both legs are equal, so each is 12. Therefore, 2 legs sum to 24, so that works with r + s =24. Then, using the legs as hypotenuse of a right triangle with height 6 and base difference/2. The difference of the bases is 12√3, so (12√3)/2 = 6√3. Then, the Pythagorean theorem:
+(6√3)^2 + 6^2 = (leg)^2 ?
+Wait, 6√3 squared is 36*3 = 108, plus 36 is 144, which is 12^2. That checks out. So that's correct.
+Therefore, r and s are 12 ± 6√3, and their squares add to 504. Hmm, that seems straightforward. Let me just confirm the calculation of r² + s² again. Alternatively, maybe there's a smarter way to compute r² + s² without having to find r and s individually? We know that:
+(r + s)^2 = r² + 2rs + s²
+(r - s)^2 = r² - 2rs + s²
+Therefore, (r + s)^2 + (r - s)^2 = 2(r² + s²) Therefore,
+r² + s² = [(r + s)^2 + (r - s)^2]/2 We already know r + s =24 and r - s =12√3, so:
+[(24)^2 + (12√3)^2]/2 = [576 + 144*3]/2 = [576 + 432]/2 = 1008/2 = 504 Same result. So that's correct. Therefore, the answer should be 504. Let me see if there's any possible mistake here. Wait, maybe the height is not 6? Let me think again. The radius is 3. Is the diameter equal to the height? In a tangential quadrilateral, the inradius is equal to the area divided by the semiperimeter. Wait, maybe I oversimplified. Hold on, maybe I made an error in assuming the height is twice the radius. Let me recall the correct relation. In any tangential quadrilateral, the area is equal to the inradius multiplied by the semiperimeter. Wait, let me check that formula again. Wait, actually, for a tangential quadrilateral, the area (K) is equal to the inradius (r) multiplied by the semiperimeter (s). Wait, no, is that right? Wait, let me confirm:
+Yes, for a tangential quadrilateral, the area is \\( K = r \\times s \\), where \\( s \\) is the semiperimeter. Wait, semiperimeter? Wait, that might have been my mistake. Let me check again. Wait, actually, in a tangential polygon, the area is equal to the inradius multiplied by the semiperimeter. Wait, for a circle tangent to all sides, the formula for the area is indeed \\( K = r \\times \\frac{a + b + c + d}{2} \\), where a,b,c,d are the sides. Wait, so that's semiperimeter times radius. Wait, that seems conflicting with my previous thought. Let me check with a square: if a square with side length \\( a \\), inradius is \\( a/2 \\), semiperimeter is \\( 2a \\), so area would be \\( (a/2)*(2a) = a² \\), which is correct. So that formula holds.
+Therefore, in this problem, the area is 72, the inradius is 3, so the semiperimeter is \\( 72 / 3 = 24 \\). Therefore, the semiperimeter is 24. The semiperimeter is half the sum of all sides. Therefore, the sum of all sides is 48. Wait, but earlier, I thought that the sum of the bases is 24, but that might be incorrect. Wait, let me redo this part. Let me start over with the correct formulas. Given an isosceles trapezoid with inradius 3, so the area is \\( K = r \\times N \\), where N is the semiperimeter. Wait, actually, hold on, the formula is \\( K = r \\times \\sigma \\), where \\( \\sigma \\) is the semiperimeter. Wait, so:
+\\( K = r \\times \\frac{a + b + c + d}{2} \\). Wait, actually, no, semiperimeter is half the perimeter, so:
+\\( K = r \\times \\text{semiperimeter} \\). Therefore,
+\\( 72 = 3 \\times \\frac{ (r + s + 2l) }{2} \\)
+Multiply both sides by 2:
+\\( 144 = 3 \\times (r + s + 2l) \\) Divide both sides by 3:
+\\( 48 = r + s + 2l \\)
+Therefore, the sum of the two bases (r + s) plus twice the leg length equals 48.
+But we also know that in a tangential trapezoid, the sum of the bases equals the sum of the legs. Since it's isosceles, the legs are equal, so:
+\\( r + s = 2l \\) Therefore, substituting into the previous equation, \\( (2l) + 2l = 48 \\) So,
+\\( 4l = 48 \\implies l = 12 \\)
+Therefore, legs are 12 each, so sum of the bases \\( r + s = 24 \\), which matches the previous result. So that is okay. Therefore, the height can be found via area:
+Area = (r + s)/2 * h = 24/2 * h = 12 h = 72 ⇒ h = 6. So that's correct. So height is indeed 6. So my initial thought was okay. The inradius is 3, but the height is twice that? Wait, but in a tangential quadrilateral, is there a direct relation between inradius and height? In a trapezoid, the inradius (if exists) must satisfy certain conditions. Since the circle is tangent to both bases, the distance between the bases is the height, which is equal to 2r? Wait, here the inradius is 3, so height would be 6, so that is correct. So in a trapezoid with an incircle, the height is twice the inradius? Let me see. Wait, actually, in a trapezoid with an incircle, the inradius is equal to the area divided by the semiperimeter. But in the case of a trapezoid, the area is also (a + b)/2 * h. So if we have the inradius, then r = (Area)/semiperimeter. But in this case, we were given the inradius and the area, so that led us to the semiperimeter being 24. But the height is indeed 6 here, so that's twice the radius. Hmm, so in this case, the height is twice the radius. So maybe in a trapezoid with an incircle, the height is twice the radius? Is that a general formula? Wait, let me check with another example. Suppose a square with side length 2, inradius 1, then the height (which is the same as the side) is 2, which is twice the radius (1). Wait, but the inradius of a square is equal to half the side length, so if the inradius is r, the side is 2r, so the height (side) is 2r. So that's consistent. Another example, take a rectangle which is a tangential quadrilateral. The inradius would be half the height, so again, height is twice the radius. Wait, but a rectangle is a trapezoid as well (with both pairs of sides parallel). So in a rectangle, yes, the inradius is half the height. But in a non-rectangle trapezoid, like our case, the inradius is half the height. Wait, so in general for any tangential trapezoid, the inradius is equal to half the height? Therefore, height = 2r. So that's why here, with radius 3, the height is 6. So that formula is valid. Therefore, my initial thought was correct. So all steps are okay. So, in conclusion, the answer is 504. But let me check once more. Alternatively, perhaps there is a different approach. Let me think.`, tokens:1619},
+      {type:"summary", idx:4, text:`Checks consistency: area gives r+s=24; tangential isosceles => legs equal and r+s=2l => l=12. Uses (r+s)^2+(r-s)^2=2(r^2+s^2) with r-s=12*sqrt(3) to recompute r^2+s^2=504. Re-derives semiperimeter formula K=r*(perimeter/2) => r+s+2l=48 plus r+s=2l => l=12, h=6; confirms height=2*radius in this setting; concludes answer 504.`, tokens:81},
+      {type:"block", idx:5, text:`In an isosceles trapezoid with an incircle, we know that the sum of the lengths of the two bases equals the sum of the lengths of the two legs. Since it's isosceles, legs are equal, so each leg is (r + s)/2. Wait, but legs can't be (r + s)/2 because legs are the non-parallel sides. Wait, actually, the condition is that the sum of the bases equals the sum of the legs. Since there are two legs, each of length l, so sum of legs is 2l, so indeed r + s = 2l. So legs are each length l = (r + s)/2. Wait, but in our case, since r + s =24, legs are 12 each, which is okay. Alternatively, since in an isosceles trapezoid with bases r and s, the legs can be calculated via the Pythagorean theorem as I did before. The difference of the bases is (r - s), so when you project the legs onto the base, the horizontal component is (r - s)/2. So the legs are hypotenuse of a right triangle with sides (r - s)/2 and h (height). Therefore, leg length squared is h² + [(r - s)/2]^2. So:
+\\( l^2 = h^2 + \\left( \\frac{r - s}{2} \\right)^2 \\)
+We have l = 12, h =6, so:
+12^2 = 6^2 + [(r - s)/2]^2
+144 = 36 + [(r - s)/2]^2
+[(r - s)/2]^2 = 108
+Which again gives (r - s)^2 = 432.
+We also know that (r + s)^2 = 24^2 = 576.
+Then, since (r + s)^2 + (r - s)^2 = 2(r² + s²), so:
+576 + 432 = 2(r² + s²)
+1008 = 2(r² + s²) => r² + s² = 504. Yep, same result. Therefore, this confirms that the answer is indeed 504. I think that's solid. **Final Answer** \\boxed{504}`, tokens:358},
+      {type:"summary", idx:5, text:`Restates tangential condition r+s=2l with l=12. Uses leg formula l^2=h^2+((r-s)/2)^2: 144=36+((r-s)/2)^2 => (r-s)^2=432. With (r+s)^2=576, apply (r+s)^2+(r-s)^2=2(r^2+s^2) => r^2+s^2=504; final boxed answer 504.`, tokens:52},
+      {type:"answer", idx:0, text:`Given an isosceles trapezoid with an inscribed circle (radius 3) and area 72, we need to find \\( r^2 + s^2 \\) where \\( r \\) and \\( s \\) are the lengths of the parallel sides.
+
+1. **Height Calculation**:
+   - The radius \\( r \\) is 3, so the height \\( h \\) of the trapezoid is \\( 2 \\times 3 = 6 \\).
+
+2. **Area Formula**:
+   - The area of the trapezoid is given by \\( \\frac{(r + s)}{2} \\times h = 72 \\).
+   - Substituting \\( h = 6 \\), we get:
+     \\[
+     \\frac{(r + s)}{2} \\times 6 = 72 \\implies (r + s) \\times 3 = 72 \\implies r + s = 24
+     \\]
+
+3. **Leg Length Calculation**:
+   - For a trapezoid with an inscribed circle, the sum of the bases equals the sum of the legs. Since it is isosceles, both legs are equal. Let each leg be \\( l \\):
+     \\[
+     r + s = 2l \\implies 24 = 2l \\implies l = 12
+     \\]
+
+4. **Difference of Bases**:
+   - Using the Pythagorean theorem for the legs, where the leg length \\( l = 12 \\), height \\( h = 6 \\), and horizontal component \\( \\frac{|r - s|}{2} \\):
+     \\[
+     \\left( \\frac{|r - s|}{2} \\right)^2 + 6^2 = 12^2 \\implies \\left( \\frac{|r - s|}{2} \\right)^2 = 144 - 36 = 108 \\implies \\frac{|r - s|}{2} = \\sqrt{108} = 6\\sqrt{3} \\implies |r - s| = 12\\sqrt{3}
+     \\]
+
+5. **Solving for \\( r \\) and \\( s \\)**:
+   - We have the system:
+     \\[
+     r + s = 24 \\quad \\text{and} \\quad |r - s| = 12\\sqrt{3}
+     \\]
+   - Assuming \\( r > s \\), we get:
+     \\[
+     r = 12 + 6\\sqrt{3}, \\quad s = 12 - 6\\sqrt{3}
+     \\]
+
+6. **Calculating \\( r^2 + s^2 \\)**:
+   - Using the identity \\( (r + s)^2 + (r - s)^2 = 2(r^2 + s^2) \\):
+     \\[
+     (24)^2 + (12\\sqrt{3})^2 = 2(r^2 + s^2) \\implies 576 + 432 = 2(r^2 + s^2) \\implies 1008 = 2(r^2 + s^2) \\implies r^2 + s^2 = 504
+     \\]
+
+Thus, the final answer is \\(\\boxed{504}\\).`, tokens:435}
+    ]
+  },
+  code: {
+    source: `LiveCodeBench v6`,
+    problem: `You have an empty sequence A. There are Q queries given, and you need to process them in the order they are given.
+The queries are of the following two types:
+
+- 1 x: Append x to the end of A.
+- 2 k: Find the k-th value from the end of A. It is guaranteed that the length of A is at least k when this query is given.
+
+Input
+
+The input is given from Standard Input in the following format:
+Q
+\\mathrm{query}_1
+\\mathrm{query}_2
+\\vdots
+\\mathrm{query}_Q
+
+Each query is in one of the following two formats:
+1 x
+
+2 k
+
+Output
+
+Print q lines, where q is the number of queries of the second type.
+The i-th line should contain the answer to the i-th such query.
+
+Constraints
+
+
+- 1 \\leq Q \\leq 100
+- In the first type of query, x is an integer satisfying 1 \\leq x \\leq 10^9.
+- In the second type of query, k is a positive integer not greater than the current length of sequence A.
+
+Sample Input 1
+
+5
+1 20
+1 30
+2 1
+1 40
+2 3
+
+Sample Output 1
+
+30
+20
+
+
+- Initially, A is empty.
+- The first query appends 20 to the end of A, making A=(20).
+- The second query appends 30 to the end of A, making A=(20,30).
+- The answer to the third query is 30, which is the 1-st value from the end of A=(20,30).
+- The fourth query appends 40 to the end of A, making A=(20,30,40).
+- The answer to the fifth query is 20, which is the 3-rd value from the end of A=(20,30,40).`,
+    answer: `Q = int(input())
+A = []
+for _ in range(Q):
+    parts = input().split()
+    if parts[0] == '1':
+        x = int(parts[1])
+        A.append(x)
+    else:
+        k = int(parts[1])
+        print(A[-k])`,
+    segments: [
+      {type:"block", idx:1, text:`Okay, let's see. I need to solve this problem where there's a sequence A and I have to process some queries. The queries can be either appending a number to the end or finding the k-th element from the end. Hmm. So first, I should think about how to handle these operations efficiently. Wait, the problem says for the second type query, the answer is the k-th from the end. Oh right, like if the array is [20, 30, 40], then the 3rd from the end is 20. Because the end is the last element, so first is 40, second is 30, third is 20. Oh right, so for the query 2 3 in the sample, that's why the answer is 20. So the straightforward approach would be, whenever we have a query of type 2, we can just access the array from the end. But in Python, lists are easy to handle. Let's think about using a list. For each type 1, append x to the list. For type 2, the k-th from the end is the element at position len(A)-k. Wait yes. Because the list's end is the last element, so the first from end is index -1, second -2, etc. So the k-th from the end would be at index -k. But in Python, negative indices are allowed, right? Like if the list has 3 elements, then A[-1] is last, -2 second, etc. So for k=3, A[-3] would be the third from end. But I have to make sure that the length is sufficient, but the problem says that the queries are valid, so no need to check. Wait the problem states that in the second type query, k is not greater than the current length, so we don't have to worry about invalid k. So the steps are:
+Initialize a list A. Then process each query:
+For a type 1, append x to A. For a type 2, get the k-th from end, which is A[-k], and output that. Wait that's simple. Let me test with the sample input. Sample Input 1: 5 The first two queries make A as [20, 30].
+Third query is 2 1 → A[-1] is 30 → correct.
+Fourth appends 40 → A is [20,30,40].
+Fifth is 2 3 → A[-3] is 20 → correct. Yes, so that works. So the code can be straightforward.`, tokens:487},
+      {type:"summary", idx:1, text:`Chooses Python list A; invariant: A stores elements in arrival order; for type2 query with 1<=k<=len(A), k-th from end = A[-k] (negative indices). Operations: type1 -> A.append(x); type2 -> output A[-k]. Validity: queries ensure k within bounds so no checks. Sample validation: after appends [20,30]; query(2,1)->A[-1]=30; after append40 => [20,30,40]; query(2,3)->A[-3]=20.`, tokens:93},
+      {type:"block", idx:2, text:`Now, how to code this. First, read Q. Then process each query line by line. Wait, in Python, the first line is Q, then Q lines follow. Each line is either starting with 1 or 2. So, for each line after the first, split the line into parts. For example, for a line like "1 20", split into list gives ['1', '20'], so the first element is the type, second is x. For type 2, it's like "2 1", so split into ['2','1'], and k is the second element. So, code steps: Initialize A as empty list. Read Q. Then loop Q times:
+Read each query line. Split into parts. Depending on the first part being '1' or '2'. For type 1: append int(x) to A.
+For type 2: take the second part, convert to int k, then output A[-k] Wait, yes. Wait the output for type2 queries must be printed as separate lines for each such query. So collect all outputs and print each in order. So, perhaps, in code:
+We can just process each query as we read them, and whenever it's a type2, immediately print the result, since the order is sequential. Wait yes, because the queries are to be processed in order, and each type2's answer must be printed in the order they appear. So code outline: import sys A = [] Q = int(input())
+for _ in range(Q):
+\`\`\`python
+query = input().split()
+
+if query[0] == '1':
+
+    x = int(query[1])
+
+    A.append(x)
+\`\`\` else:
+k = int(query[1])
+print(A[-k]) Wait, that's all?`, tokens:339},
+      {type:"summary", idx:2, text:`Implements Python algorithm: read Q, init A=[], iterate Q times reading each query via input().split(). For type '1', parse x=int(query[1]) and append to A; for type '2', parse k=int(query[1]) and print A[-k]. Confirms printing each result immediately in encounter order satisfies requirements.`, tokens:73},
+      {type:"block", idx:3, text:`Yes, that seems to handle it. Let me test the sample input. Sample Input 1: 5 The first query is "1 20" → append 20 → A is [20]
+Second query "1 30" → append → [20,30]
+Third query "2 1" → print A[-1] → 30. Correct.
+Fourth query "1 40" → append → [20, 30,40]
+Fifth query "2 3" → A[-3] is 20, correct. So yes, the code would output 30 and 20 as required. Wait, but what if the list is empty? But the problem states that for type 2 queries, the k is valid. So no problem. Hmm, what about when the list has exactly k elements? Like, if k is 1, then A[-1] is the last element, which is correct. Yes. So this code should work. Let me think about possible edge cases. Another test case: Suppose Q=1 and the query is type 2 with k=1, but the list must have at least 1 element. So the input would be:
+1 2 1 But the first line is Q=1, but then there's only one query which is type 2. Wait, but that's impossible, because the first query can't be type 2 if the list is empty. So the problem's input ensures that all queries are valid. So the code can proceed without error handling. Another test case: Suppose multiple appends and queries. Let's see. Suppose input: 3 1 5 2 1 2 2 Then output would be 5 and then 5? Wait after first append, the list has [5].
+The second query is type 2, k=1 → 5. The third query is type 2, k=2? Wait no, because the length is 1. So that's an invalid input, but problem says it is valid. So in this case, the third query can't be 2 2. Thus, the code can proceed as the problem ensures validity. So the code is correct.`, tokens:384},
+      {type:"summary", idx:3, text:`Manual simulation on sample and selected edge cases confirms Python logic: maintain list A; for type 1 x do A.append(x); for type 2 k do print(A[-k]). Sample trace: start A=[]; q1 "1 20" -> A=[20]; q2 "1 30" -> A=[20,30]; q3 "2 1" -> print A[-1]=30; q4 "1 40" -> A=[20,30,40]; q5 "2 3" -> print A[-3]=20; matches sample output "30" and "20". Relies on problem guarantee that for type-2 queries 1 <= k <= len(A), so no need for empty-list or out-of-range checks. Edge-case reasoning: considers Q=1 with only type 2 (impossible due to validity guarantee); considers multiple appends/queries, e.g., input "3; 1 5; 2 1; 2 2", notes that query "2 2" would be invalid if len(A)=1, but such inputs are excluded by the guarantee, so no additional error handling is required.`, tokens:191},
+      {type:"block", idx:4, text:`Therefore the code is as written above. Wait, but in Python, when you split the input, the elements are split by any whitespace, so even if the numbers have leading zeros or whatever, but the problem states that x is an integer, so the code is okay. Therefore, the code is straightforward. Let me write it properly. Wait, the code should read Q first. So, first read Q with input(). Then loop Q times, each time read the next line, split into parts, etc. Yes. So the code would be:
+\`\`\`python
+Q = int(input())
+A = []
+for _ in range(Q):
+    parts = input().split()
+    if parts[0] == '1':
+        x = int(parts[1])
+        A.append(x)
+    else:
+        k = int(parts[1])
+        print(A[-k])
+\`\`\` That's all. That should work. Let me check the sample input again. Sample Input 1 gives 5 queries. The fifth query is 2 3 → the array is [20,30,40], so A[-3] is 20. Yes. Correct.
+Another test case: Let me imagine a case where after several appends, the query is 2 with k= len(A). For example, after appending 3 elements, querying 3 would give the first element (since it's third from end). Yes, that's correct. So this code should handle all cases correctly. I think that's the solution.`, tokens:295},
+      {type:"summary", idx:4, text:`Finalizes code structure explicitly: Q=int(input()); A=[]; loop Q times reading parts=input().split(); if parts[0]=='1' then x=int(parts[1]); A.append(x); else k=int(parts[1]); print(A[-k]); asserts readiness for all valid inputs.`, tokens:57},
+      {type:"answer", idx:0, text:`\`\`\`python
+Q = int(input())
+A = []
+for _ in range(Q):
+    parts = input().split()
+    if parts[0] == '1':
+        x = int(parts[1])
+        A.append(x)
+    else:
+        k = int(parts[1])
+        print(A[-k])
+\`\`\``, tokens:52}
+    ]
+  },
+  science: {
+    source: `GPQA Diamond`,
+    problem: `Your overhear two chemists talking to each other as they leave a synthetic organic chemistry lab. One asks the other "So, how did it go?" The second chemist replies, "Not well - my compounds are on top of each other."
+
+What is the second chemist most likely referring to?`,
+    answer: `C`,
+    segments: [
+      {type:"block", idx:1, text:`Okay, let's see. The problem is about two chemists talking, and one says their compounds are "on top of each other. " I need to figure out what that means from the given options. First, I'll consider each option one by one. Option A: Similar optical rotations. Optical rotation has to do with how a compound rotates plane-polarized light. If compounds have similar optical rotations, maybe they are enantiomers or similar stereoisomers. But how does that relate to being "on top of each other"? Maybe if they are superimposable, like mirror images, but enantiomers aren't superimposable. Hmm, not sure yet. Option B: Similar boiling points. Boiling point is related to intermolecular forces. If they have similar boiling points, maybe they have similar intermolecular forces. But how would that cause compounds to be on top of each other? Maybe in distillation, if boiling points are close, they would co-distill or not separate well. But the phrasing is "on top of each other," maybe like overlapping in a distillation? Not sure. Option C: Similar polarities. Similar polarities would mean they have similar solubility, might not separate well in some techniques like chromatography. If they have similar polarity, maybe they co-elute, so their spots or peaks are on top of each other in TLC or GC? That seems possible. Like if you run a chromatogram and the compounds have similar Rf values or retention times, they'd overlap, making it hard to see them separately. That could be what "on top of each other" refers to. Option D: Bonding through non-covalent interactions. Van der Waals, hydrogen bonding, etc. If they are bonding that way, maybe they form aggregates or precipitates? Not sure how that would make compounds "on top of each other. " Maybe forming a complex that's hard to separate? Alternatively, if they stick too much, maybe clogging equipment?`, tokens:465},
+      {type:"summary", idx:1, text:`Begins interpreting phrase "compounds are on top of each other"; evaluates options: A) similar optical rotation (stereoisomer issue, uncertain link), B) similar bp (co-distillation overlap), C) similar polarity (co‑elution in chromatography), D) non‑covalent bonding (aggregation). Notes C most plausible for overlap in separation techniques.`, tokens:85},
+      {type:"block", idx:2, text:`Now, considering common lab techniques. If you're doing chromatography, like TLC or column, compounds with similar polarity will have similar Rf values or retention times, so their spots/bands would overlap, making it hard to see them or analyze them separately. Similarly, in GC-MS, if two compounds have similar volatility, they co-elute. So if the compounds are "on top of each other," that would be overlapping in a chromatogram, which would happen if they have similar polarity (so similar partitioning in chromatography) or similar boiling points (so similar volatility). The question is between B and C. Let me think again. Boiling points being similar would affect distillation. If you're trying to separate them by distillation, similar boiling points mean they won't separate well, so they might both distill over together. But the problem is, in distillation, you would say they "co-distill" but maybe not "on top of each other. " Whereas in chromatography, overlapping peaks are literally on top of each other in the chromatogram. Since the question is about a general lab setting, maybe chromatography is more common in organic synthesis. So similar polarities leading to overlapping spots or peaks would make sense. Alternatively, similar boiling points might lead to co-distillation but not necessarily being "on top. "`, tokens:333},
+      {type:"summary", idx:2, text:`Uses chromatography context: similar polarity → similar Rf/retention → overlapping bands; similar bp → co‑distillation; prefers C (chromatogram overlap) as more typical "on top" description.`, tokens:47},
+      {type:"block", idx:3, text:`Also, non-covalent interactions (option D) might cause aggregation, but that might not make them "on top of each other" in a separation sense. Maybe they clump, but that's different from overlapping in a chromatogram. So between B and C. Let me think of the phrasing again: "my compounds are on top of each other. " In chromatography terms, if two compounds co-elute, their peaks overlap, so they are on top of each other in the chromatogram. That would happen if they have similar retention properties, which depend on polarity (among other factors). So if their polarities are similar, they might not separate properly. Alternatively, similar boiling points would lead to co-distillation, but in distillation, they might come off together, but you might say they "come over together" rather than "on top of each other. " Hmm. "On top of each other" might be a metaphor from chromatography where peaks overlap. So maybe the answer is C. Alternatively, in NMR spectroscopy, if compounds have similar chemical shifts, their signals could overlap. But that's more about molecular structure affecting shifts rather than bulk properties like polarity or boiling point. So maybe not. Wait, another angle: "compounds are on top of each other" could mean that they are superimposed in a spectrum, which would be due to similar properties that make them indistinguishable in the technique being used. Since the chemists are working in a synthetic lab, they might be using TLC, HPLC, GC, etc. In any case, similar polarity leading to similar Rf or retention times would cause overlapping spots or peaks. So C. Alternatively, if they have similar boiling points, during a distillation, the compounds would have overlapping distillation fractions. But the phrase "on top of each other" might not be the typical way to describe that. Maybe "they come over together" or "they co-distill. " Whereas in chromatography, "on top of each other" makes sense as peaks overlapping.`, tokens:490},
+      {type:"summary", idx:3, text:`Uses phrase interpretation + comparative analysis of options. Evaluates "on top of each other" as possible chromatographic peak overlap vs physical aggregation. Considers D (non-covalent interactions) but dismisses as clumping not separation overlap. Focuses on B (similar bp causing co-distillation) vs C (similar polarity causing co-elution). Notes chromatography terminology: overlapping peaks, co-elution, similar retention properties, Rf/retention time. Argues similar polarity leads to overlapping spots/peaks and fits the wording; similar bp gives co-distillation but not the same phraseology. Mentions NMR overlap as unlikely (structural shifts). Concludes C as most consistent.`, tokens:171},
+      {type:"block", idx:4, text:`So I think the answer is B or C. Let me think again. The key is the phrasing "on top of each other". If they are on top in a chromatogram, then C. If in distillation, maybe B. But which is more likely? Alternatively, maybe the problem is referring to something else. Wait, another angle: "compounds are on top of each other" could mean they are layered? Like in a liquid-liquid extraction, if two compounds have different densities, they might form layers. But if they are on top, maybe they are immiscible? But the problem says "on top of each other" not separating, so maybe they can't be separated because they are mixed? Not sure. Alternatively, if they have similar polarities, they might not separate in a chromatogram. So in that case, the compounds are "on top" (overlapping) each other in the chromatogram. So C. Alternatively, if they have similar boiling points, distillation can't separate them, so they end up together in the same fraction, but "on top of each other" might not be the term. Alternatively, if they are forming a solid, maybe they can't be seen. But D is about bonding, so maybe forming aggregates, but again not sure. Another thought: "on top of each other" might mean they are superimposed, like in NMR spectra overlapping peaks. So that would be due to similar chemical environments, which could be due to similar structure, but the options given are about physical properties. So similar polarities (C) would affect HPLC, GC, etc. So I think the best answer is C. Wait, but let me check another angle. The problem says "my compounds are on top of each other". The compounds themselves, so maybe the product and starting material are still together because they didn't react. But that's not about physical properties. Alternatively, maybe they are in a reaction mixture that's a thick paste, but that's vague. Alternatively, if they have similar boiling points, and when distilled, they both evaporate at the same time, so the distillation didn't work, so the compounds are still mixed, "on top of each other". Hmm. Alternatively, the compounds are in a solution and can't be separated because they have similar solubility? But that's not one of the options. Wait, another thought: "on top of each other" could be a misinterpretation. Maybe the compounds are forming a superposition in NMR or something, but more likely the chromatogram. Alternatively, if the compounds are chiral and have similar optical rotations (A), but if they are enantiomers, their rotations are opposite. If they have similar magnitudes but opposite, maybe they net to zero? But how would that make them "on top of each other"? Not sure. Alternatively, if they are the same compound? But the question says compounds (plural). So probably different compounds. Hmm, I think the best options are B and C. Let me think of common lab scenarios. If you're doing chromatography, like TLC or HPLC, and two compounds have similar polarity, they would have similar Rf values or retention times, so their spots or peaks would be on top of each other, making it hard to see them as separate. That seems likely. So C is the answer. Alternatively, if they have similar boiling points, when you do distillation, you can't separate them, so they stay mixed. But the phrasing "on top of each other" makes me think visually in a chromatogram. So I think C is correct.`, tokens:838},
+      {type:"summary", idx:4, text:`Reconsiders B vs C; explores other contexts (extraction, NMR) but returns to chromatography overlap due to similar polarity as most consistent. Concludes likely answer = C.`, tokens:43},
+      {type:"answer", idx:0, text:`The second chemist is most likely referring to **C) The compounds they are working with have similar polarities.**
+
+### Reasoning:
+The phrase "compounds are on top of each other" suggests overlapping or co-elution in a separation technique like chromatography. In chromatography, compounds with **similar polarities** will have similar affinities for the stationary and mobile phases, leading to overlapping retention times or spots/bands on a chromatogram or TLC plate. This would make it difficult to distinguish or separate the compounds, hence them being "on top of each other."
+
+- **Option A (Optical rotations):** Similar optical rotations might indicate enantiomers or similar stereoisomers, but this doesn’t directly cause overlapping in analytical techniques like chromatography. 
+- **Option B (Boiling points):** Similar boiling points would cause co-distillation, but the phrase "on top of each other" is more closely associated with separation issues in chromatography rather than distillation. 
+- **Option D (Non-covalent interactions):** While such interactions might cause aggregation, this doesn’t directly explain overlapping in analytical methods. 
+
+Thus, **Option C** best fits the context of separation challenges in common lab techniques like chromatography. 
+
+**Answer: C) The compounds they are working with have similar polarities.**`, tokens:339}
+    ]
+  }
+};
+
+let currentExample = 'math';
+let SEGMENTS = EXAMPLES.math.segments;
+
+// Prompt tokens (approximate)
+const PROMPT_TOKENS = 80;
+
+// ================================================================
+// ANIMATION STATE
+// ================================================================
+let state = {
+  segIdx: 0,
+  charIdx: 0,
+  playing: false,
+  finished: false,
+  timer: null,
+  kvHistory: [],
+  totalTokens: 0,
+  currentKV: PROMPT_TOKENS,
+  peakKV: PROMPT_TOKENS,
+  maskedBlocks: new Set(),
+  maskedTokens: 0,
+  elements: [],
+};
+
+// ================================================================
+// INIT
+// ================================================================
+function init() {
+  const panel = document.getElementById('genPanel');
+  state.elements = [];
+
+  SEGMENTS.forEach((seg, i) => {
+    const div = document.createElement('div');
+    div.className = `gen-segment ${seg.type}`;
+    div.style.display = 'none';
+
+    const label = document.createElement('span');
+    label.className = 'seg-label';
+    if (seg.type === 'block') label.textContent = `Thinking Block ${seg.idx}`;
+    else if (seg.type === 'summary') label.textContent = `Memento ${seg.idx}`;
+    else label.textContent = 'Final Answer';
+    div.appendChild(label);
+
+    const content = document.createElement('span');
+    content.className = 'seg-content';
+    div.appendChild(content);
+
+    panel.appendChild(div);
+    state.elements.push({ div, content, seg });
+  });
+
+  state.kvHistory = [{tokensSoFar: 0, kvTokens: PROMPT_TOKENS, vanillaTokens: PROMPT_TOKENS}];
+  drawChart();
+  updateStats();
+}
+
+// ================================================================
+// ANIMATION TICK
+// ================================================================
+function tick() {
+  if (state.segIdx >= SEGMENTS.length) {
+    stopPlay();
+    document.getElementById('btnPlay').textContent = '\u21BA Reset';
+    state.finished = true;
+    return;
+  }
+
+  const charsPerTick = 30;
+
+  const seg = SEGMENTS[state.segIdx];
+  const el = state.elements[state.segIdx];
+
+  if (state.charIdx === 0) {
+    el.div.style.display = 'block';
+    el.div.classList.add('active');
+  }
+
+  state.charIdx = Math.min(state.charIdx + charsPerTick, seg.text.length);
+  const revealed = seg.text.substring(0, state.charIdx);
+  // Use textContent while typing (fast), render math when segment completes
+  el.content.textContent = revealed;
+
+  // Keep focus on the latest generated text
+  const panel = document.getElementById('genPanel');
+  panel.scrollTop = panel.scrollHeight;
+
+  if (state.charIdx < seg.text.length) {
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    el.content.appendChild(cursor);
+  } else {
+    // Segment complete — render math
+    renderMathIn(el.content, revealed);
+  }
+
+  const tokensRevealed = Math.round((state.charIdx / seg.text.length) * seg.tokens);
+  const totalTokensSoFar = PROMPT_TOKENS + SEGMENTS.slice(0, state.segIdx).reduce((s, x) => s + x.tokens, 0) + tokensRevealed;
+
+  let mementoKV = PROMPT_TOKENS + tokensRevealed;
+  for (let i = 0; i < state.segIdx; i++) {
+    if (SEGMENTS[i].type === 'summary') {
+      mementoKV += SEGMENTS[i].tokens;
+    } else if (SEGMENTS[i].type === 'block' && !state.maskedBlocks.has(SEGMENTS[i].idx)) {
+      mementoKV += SEGMENTS[i].tokens;
+    } else if (SEGMENTS[i].type === 'answer') {
+      mementoKV += SEGMENTS[i].tokens;
+    }
+  }
+
+  state.currentKV = mementoKV;
+  state.peakKV = Math.max(state.peakKV, mementoKV);
+  state.totalTokens = totalTokensSoFar;
+
+  const vanillaKV = totalTokensSoFar;
+
+  state.kvHistory.push({
+    tokensSoFar: totalTokensSoFar,
+    kvTokens: mementoKV,
+    vanillaTokens: vanillaKV
+  });
+
+  drawChart();
+  updateStats();
+  updateProgress();
+
+  if (state.charIdx >= seg.text.length) {
+    el.div.classList.remove('active');
+
+    if (seg.type === 'summary') {
+      state.maskedBlocks.add(seg.idx);
+      for (let i = 0; i < state.segIdx; i++) {
+        if (SEGMENTS[i].type === 'block' && SEGMENTS[i].idx === seg.idx) {
+          const maskedEl = state.elements[i];
+          maskedEl.div.classList.add('masked');
+          maskedEl.div.addEventListener('click', function() {
+            this.classList.toggle('expanded');
+          });
+          const blockTokens = SEGMENTS[i].tokens;
+          state.currentKV -= blockTokens;
+          state.kvHistory.push({
+            tokensSoFar: totalTokensSoFar + 1,
+            kvTokens: state.currentKV,
+            vanillaTokens: vanillaKV
+          });
+          drawChart();
+          updateStats();
+          break;
+        }
+      }
+    }
+
+    state.segIdx++;
+    state.charIdx = 0;
+  }
+}
+
+// ================================================================
+// PLAY/PAUSE/STEP/RESET
+// ================================================================
+function togglePlay() {
+  if (state.finished) {
+    resetDemo();
+    return;
+  }
+  if (state.playing) {
+    stopPlay();
+  } else {
+    state.playing = true;
+    document.getElementById('btnPlay').textContent = '\u23F8 Pause';
+    state.timer = setInterval(tick, 40);
+  }
+}
+
+function stopPlay() {
+  state.playing = false;
+  if (!state.finished) {
+    document.getElementById('btnPlay').textContent = '\u25B6 Play';
+  }
+  if (state.timer) { clearInterval(state.timer); state.timer = null; }
+}
+
+function resetDemo() {
+  stopPlay();
+  state.segIdx = 0;
+  state.charIdx = 0;
+  state.kvHistory = [{tokensSoFar: 0, kvTokens: PROMPT_TOKENS, vanillaTokens: PROMPT_TOKENS}];
+  state.currentKV = PROMPT_TOKENS;
+  state.peakKV = PROMPT_TOKENS;
+  state.maskedBlocks = new Set();
+  state.maskedTokens = 0;
+  state.totalTokens = 0;
+  state.finished = false;
+  document.getElementById('btnPlay').textContent = '\u25B6 Play';
+
+  state.elements.forEach(el => el.div.remove());
+  state.elements = [];
+  init();
+}
+
+// ================================================================
+// KV CHART (Canvas)
+// ================================================================
+function drawChart() {
+  const canvas = document.getElementById('kvCanvas');
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  const W = rect.width;
+  const H = rect.height;
+  const pad = {top: 10, right: 15, bottom: 36, left: 48};
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const totalMax = PROMPT_TOKENS + SEGMENTS.reduce((s, x) => s + x.tokens, 0);
+  const kvMax = totalMax * 1.05;
+
+  // Axes
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + ch);
+  ctx.lineTo(pad.left + cw, pad.top + ch);
+  ctx.stroke();
+
+  // Grid
+  ctx.strokeStyle = '#f0f0f0';
+  for (let i = 1; i <= 4; i++) {
+    const y = pad.top + ch - (ch * i / 4);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + cw, y);
+    ctx.stroke();
+  }
+
+  // Y labels
+  function fmtK(v) { return v >= 1000 ? Math.round(v / 1000) + 'K' : v.toString(); }
+  ctx.fillStyle = '#999';
+  ctx.font = '10px Source Sans 3, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = Math.round(kvMax * i / 4);
+    const y = pad.top + ch - (ch * i / 4);
+    ctx.fillText(fmtK(val), pad.left - 6, y + 3);
+  }
+
+  // X label
+  ctx.fillStyle = '#999';
+  ctx.font = '10px Source Sans 3, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Tokens generated', pad.left + cw / 2, H - 4);
+
+  // Y label
+  ctx.save();
+  ctx.translate(12, pad.top + ch / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('KV cache (tokens)', 0, 0);
+  ctx.restore();
+
+  if (state.kvHistory.length < 2) return;
+
+  function toX(tok) { return pad.left + (tok / totalMax) * cw; }
+  function toY(kv) { return pad.top + ch - (kv / kvMax) * ch; }
+
+  // Vanilla line (dashed)
+  ctx.strokeStyle = 'rgba(38, 139, 210, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  state.kvHistory.forEach((pt, i) => {
+    const x = toX(pt.tokensSoFar);
+    const y = toY(pt.vanillaTokens);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Memento fill
+  ctx.fillStyle = 'rgba(211, 54, 130, 0.08)';
+  ctx.beginPath();
+  ctx.moveTo(toX(state.kvHistory[0].tokensSoFar), toY(0));
+  state.kvHistory.forEach(pt => {
+    ctx.lineTo(toX(pt.tokensSoFar), toY(pt.kvTokens));
+  });
+  const lastPt = state.kvHistory[state.kvHistory.length - 1];
+  ctx.lineTo(toX(lastPt.tokensSoFar), toY(0));
+  ctx.closePath();
+  ctx.fill();
+
+  // Memento line
+  ctx.strokeStyle = '#d33682';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  state.kvHistory.forEach((pt, i) => {
+    const x = toX(pt.tokensSoFar);
+    const y = toY(pt.kvTokens);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Peak line
+  ctx.strokeStyle = 'rgba(211, 54, 130, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pad.left, toY(state.peakKV));
+  ctx.lineTo(toX(lastPt.tokensSoFar), toY(state.peakKV));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Peak label
+  ctx.fillStyle = 'rgba(211, 54, 130, 0.6)';
+  ctx.font = '9px Source Sans 3, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Peak ' + state.peakKV.toLocaleString(), pad.left + cw, toY(state.peakKV) - 4);
+}
+
+// ================================================================
+// STATS
+// ================================================================
+function updateStats() {
+  document.getElementById('statCurrentKV').textContent = state.currentKV.toLocaleString();
+  document.getElementById('statPeakKV').textContent = state.peakKV.toLocaleString();
+  document.getElementById('statVanillaKV').textContent = state.totalTokens.toLocaleString();
+
+  if (state.totalTokens > 0) {
+    const ratio = (state.totalTokens / Math.max(state.peakKV, 1)).toFixed(1);
+    document.getElementById('statReduction').textContent = ratio + '\u00D7';
+  }
+}
+
+function updateProgress() {
+  const totalChars = SEGMENTS.reduce((s, x) => s + x.text.length, 0);
+  const doneChars = SEGMENTS.slice(0, state.segIdx).reduce((s, x) => s + x.text.length, 0) +
+    (state.segIdx < SEGMENTS.length ? state.charIdx : 0);
+  const pct = (doneChars / totalChars) * 100;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+// ================================================================
+// MATH RENDERING
+// ================================================================
+function renderMathIn(el, text) {
+  if (typeof katex === 'undefined') { el.textContent = text; return; }
+
+  // 1. Normalize doubled $$ delimiters: "$$\n$$" → "$$"
+  let normalized = text.replace(/\$\$\n\$\$/g, '$$');
+
+  // 2. Split text into math and non-math parts, render math with katex directly
+  //    Handles: $$...$$, \[...\], \(...\)
+  const mathPattern = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
+  let html = '';
+  let lastIdx = 0;
+  let match;
+
+  while ((match = mathPattern.exec(normalized)) !== null) {
+    // Non-math text before this match
+    html += plainToHtml(normalized.substring(lastIdx, match.index));
+
+    // Determine display vs inline and extract inner content
+    const raw = match[0];
+    let inner, isDisplay;
+    if (raw.startsWith('$$')) {
+      inner = raw.slice(2, -2).trim();
+      isDisplay = true;
+    } else if (raw.startsWith('\\[')) {
+      inner = raw.slice(2, -2).trim();
+      isDisplay = true;
+    } else {
+      inner = raw.slice(2, -2).trim();
+      isDisplay = false;
+    }
+
+    html += katex.renderToString(inner, { displayMode: isDisplay, throwOnError: false });
+    lastIdx = match.index + match[0].length;
+  }
+
+  // Remaining non-math text
+  html += plainToHtml(normalized.substring(lastIdx));
+  el.innerHTML = html;
+}
+
+function plainToHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+
+// ================================================================
+// EXAMPLE SWITCHING
+// ================================================================
+function switchExample(key) {
+  if (key === currentExample && !state.finished && state.segIdx === 0) return;
+  
+  // Update active tab
+  document.querySelectorAll('.example-tabs .tab').forEach(btn => {
+    const isActive = btn.dataset.key === key;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  
+  currentExample = key;
+  SEGMENTS = EXAMPLES[key].segments;
+  
+  // Update problem text
+  document.getElementById('problemSource').textContent = 'Problem (' + EXAMPLES[key].source + ')';
+  document.getElementById('problemBody').textContent = EXAMPLES[key].problem;
+  
+  // Reset animation
+  resetDemo();
+}
+// ================================================================
+// BOOT
+// ================================================================
+window.addEventListener('load', init);
+window.addEventListener('resize', drawChart);
+</script>
+
+</body>
+</html>
