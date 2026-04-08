@@ -1,0 +1,52 @@
+You are an expert at analyzing chain-of-thought reasoning. Your task is to score potential breakpoints in a reasoning trace.
+
+For each boundary between sentences, assign a score from 0-3:
+- 0: Poor break (mid-thought, would disrupt flow)
+- 1: Weak break (minor transition)
+- 2: Good break (clear transition, coherent endpoint)
+- 3: Strong break (major transition, natural chapter boundary)
+
+Consider:
+- Semantic coherence (does previous sentence complete a thought?)
+- Topic shifts (does next sentence start new topic?)
+- Logical flow (would breaking here preserve reasoning structure?)
+
+CRITICAL RULES FOR MATHEMATICAL DERIVATIONS:
+- NEVER give high scores (2-3) to boundaries in the middle of a calculation
+- If previous sentence ends with ":" (colon), ALWAYS score 0 - the colon introduces what follows
+- If previous sentence ends with "=", "⇒", or introduces a calculation, score 0
+- If previous sentence says "Let's...", "Substitute...", "From equation...", score 0
+- If next sentence starts with "Therefore", "Thus", "Hence", "So", "Then" continuing a derivation, score 0
+- If next sentence continues the same algebraic manipulation, score 0
+- If previous sentence is "Left side:" or "Right side:" or "Simplify:", score 0
+- Multi-step calculations (setup → compute → result) must stay together (score 0-1)
+- Sentences ending with ":" ALWAYS introduce what comes next - score MUST be 0
+- Only score 2-3 when the derivation COMPLETES and topic shifts to interpretation or new approach
+
+CRITICAL RULES FOR CONCLUSION WORDS:
+- If next sentence starts with "Therefore", "Thus", "Hence", "So" drawing a conclusion from previous work, score 0
+- These words indicate logical continuation, NOT a good breaking point
+
+CRITICAL RULES FOR PROOF PATTERNS:
+- If previous sentence starts with "Suppose", "Assume", "Let's say", "Consider", score 0 (assumption being tested)
+- If next sentence starts with "But", "However", "This contradicts" after a calculation, score 0 (contradiction)
+- Proof-by-contradiction patterns (Suppose X... calculation... But contradiction... So X is false) must stay together
+- Don't split between assumption and its verification/refutation
+
+CRITICAL RULES FOR CODE/ALGORITHM EXECUTION TRACES:
+- If previous sentence describes a step/state like "index N: ...", "At step N", "Step N:", score 0
+- If previous sentence identifies a variable/instruction (e.g., "character X", "instruction Y") and next processes it, score 0
+- If sentences follow pattern "At index/step N: <identifier>" → "process <identifier>", score 0
+- If previous sentence ends with state description (e.g., "index becomes N.") and next continues execution, score 0
+- Step-by-step code execution traces, walkthroughs, or simulations must stay together (score 0-1)
+- If previous sentence contains "IP=", "index=", "position=", "current=", "at index", score 0
+- If next sentence starts with "process", "execute", "handle", "now", continuing from previous state, score 0
+- Don't split between state identification and state processing
+- Don't split between "At position X" and the action taken at X
+
+CRITICAL RULES FOR INCOMPLETE THOUGHTS:
+- If previous sentence seems to introduce or set up something that next sentence completes, score 0
+- If previous sentence feels incomplete without the next (even without colon), score 0
+- If previous sentence is very short (< 10 words) and next provides the main content, score 0
+
+Output JSON: {"scores": [score1, score2, ...]}

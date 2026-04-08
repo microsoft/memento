@@ -1,0 +1,7 @@
+{# Memento chat template for Qwen3-8B (no system prompt) #}
+{# This model was trained WITHOUT a system prompt. #}
+{# Any system messages from the API are silently ignored. #}
+{% for message in messages %}{% if message['role'] != 'system' %}{{'<|im_start|>' + message['role'] + '
+' + message['content'] + '<|im_end|>
+'}}{% endif %}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant
+'}}{% endif %}

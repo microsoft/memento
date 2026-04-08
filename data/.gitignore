@@ -1,0 +1,16 @@
+# Pipeline output directories
+**/output/
+**/runs/
+**/checkpoint.json
+**/*.jsonl.tmp
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+
+# Environment
+.env

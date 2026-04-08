@@ -1,0 +1,7 @@
+TEXT:
+{text}
+
+BOUNDARIES TO SCORE:
+{boundaries}
+
+IMPORTANT: You must provide EXACTLY {count} scores in the "scores" array, one for each boundary listed above. Count them carefully.
